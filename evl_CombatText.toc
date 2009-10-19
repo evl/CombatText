@@ -1,0 +1,5 @@
+## Interface: 30200
+## Title: Evl's Combat Text
+## Author: Evl
+
+evl_CombatText.lua
