@@ -1,0 +1,8 @@
+Collection of enhancements and tweaks for the default combat text
+
+h2. Features
+
+* Killing blow notification
+* Killing spree sounds
+* Interrupt notification
+* Clearcasting and Slam! notification
