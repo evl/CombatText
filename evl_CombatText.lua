@@ -106,16 +106,6 @@ function evl_CombatText:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType,
 	elseif eventType == "SPELL_INTERRUPT" and hasFlag(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) then
 		local spellID, spellName, spellSchool, extraSpellID, extraSpellName, extraSpellSchool = ...
 		CombatText_AddMessage(format("%s Interrupted!", extraSpellName), COMBAT_TEXT_SCROLL_FUNCTION, .1, .1, 1, nil, nil)
-	elseif eventType == "SPELL_AURA_APPLIED" and hasFlag(destFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) then
-		local spellID, spellName = ...
-		
-		-- Clearcasting
-		if spellName == "Clearcasting" then
-			CombatText_AddMessage("Clearcasting!", COMBAT_TEXT_SCROLL_FUNCTION, .7, .7, 1, "crit", nil)
-		-- Slam!
-		elseif spellName == "Slam!" then
-			CombatText_AddMessage("Slam!", COMBAT_TEXT_SCROLL_FUNCTION, .7, .7, 1, "crit", nil)
-		end
 	end
 end
 
