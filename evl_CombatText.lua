@@ -1,3 +1,5 @@
+local addonName, addon = ...
+
 local spreeSounds = {
 	[3] = "Killing_Spree",
 	[4] = "Dominating",
@@ -15,31 +17,29 @@ local multiSounds = {
 	[3] = "Triple_Kill",
 }
 
--- Override default Blizzard strings
-ENTERING_COMBAT = "Fight!"
-LEAVING_COMBAT = "Ninja Time!"
-HEALTH_LOW = "Low Health"
-
-local MULTI_KILL_HOLD_TIME = 11.5
---local EXTRA_ATTACK_TRIGGER = "You gain 1 extra attack"
-
+local path = "Interface\\AddOns\\" .. addonName .. "\\sounds\\%s.mp3"
+local multiKillDecayTime = 11.5
 local killingStreak = 0
 local multiKill = 0
 local lastKillTime = 0
-local lastUpdate = 0
+local executeThreshold
+local executeMessage
+local previousHealth
+
 local pendingSound
 
 local bit_band = bit.band
 local bit_bor = bit.bor
 
-local function hasFlag(flags, flag)
+local hasFlag = function(flags, flag)
 	return bit_band(flags, flag) == flag
 end
 
 local onEvent = function(self, event, ...)
-	self[event](self, event, ...)
+	addon[event](self, event, ...)
 end
 
+local lastUpdate = 0
 local onUpdate = function(self, elapsed)
 	lastUpdate = lastUpdate + elapsed
 	
@@ -53,14 +53,26 @@ local onUpdate = function(self, elapsed)
 	end
 end
 
-evl_CombatText = CreateFrame("Frame")
-evl_CombatText:SetScript("OnEvent", onEvent)
-evl_CombatText:SetScript("OnUpdate", onUpdate)
-evl_CombatText:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-evl_CombatText:RegisterEvent("PLAYER_DEAD")
-evl_CombatText:RegisterEvent("ADDON_LOADED")
+local playSounds = function()
+	local multiFileName = multiSounds[math.min(3, multiKill)]
+	local spreeFileName = spreeSounds[math.min(11, killingStreak)]
 
-function evl_CombatText:ADDON_LOADED(event, addonName)
+	if multiFileName then
+		PlaySoundFile(string.format(path, multiFileName))
+	end
+
+	if spreeFileName then
+		local spreeFilePath = string.format(path, spreeFileName)
+
+		if not multiFileName then
+			PlaySoundFile(spreeFilePath)
+		else
+			pendingSound = spreeFilePath
+		end
+	end
+end
+
+function addon:ADDON_LOADED(event, addonName)
 	-- Override default Blizzard colors if present
 	if addonName == "Blizzard_CombatText" then
 		-- We could set the table but we just want to change color and Blizzard frequently changes this format
@@ -74,15 +86,24 @@ function evl_CombatText:ADDON_LOADED(event, addonName)
 		COMBAT_TEXT_TYPE_INFO["COMBO_POINTS"].g = 0.7
 		COMBAT_TEXT_TYPE_INFO["COMBO_POINTS"].b = 1
 		
+		-- Override default Blizzard strings
+		ENTERING_COMBAT = "Fight!"
+		LEAVING_COMBAT = "Ninja Time!"
+		HEALTH_LOW = "Low Health"
+
 		self:UnregisterEvent("ADDON_LOADED")
 	end
 end
 
-function evl_CombatText:PLAYER_DEAD()
+function addon:PLAYER_TARGET_CHANGED()
+	previousHealth = 0
+end
+
+function addon:PLAYER_DEAD()
 	killingStreak = 0
 end
 
-function evl_CombatText:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
+function addon:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, ...)
 	-- Killing blows
 	if eventType == "PARTY_KILL" and hasFlag(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) and hasFlag(destFlags, COMBATLOG_OBJECT_TYPE_PLAYER) then
 		if COMBAT_TEXT_TYPE_INFO then
@@ -91,7 +112,7 @@ function evl_CombatText:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType,
 
 		local now = GetTime()
 		
-		if lastKillTime + MULTI_KILL_HOLD_TIME > now then
+		if lastKillTime + multiKillDecayTime > now then
 			multiKill = multiKill + 1
 		else
 			multiKill = 1
@@ -99,9 +120,7 @@ function evl_CombatText:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType,
 		
 		lastKillTime = now
 		killingStreak = killingStreak + 1
-		
-		self:PlaySounds()
-	
+		playSounds()
 	-- Interrupts
 	elseif eventType == "SPELL_INTERRUPT" and hasFlag(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) then
 		local spellID, spellName, spellSchool, extraSpellID, extraSpellName, extraSpellSchool = ...
@@ -109,23 +128,35 @@ function evl_CombatText:COMBAT_LOG_EVENT_UNFILTERED(event, timestamp, eventType,
 	end
 end
 
--- Play sounds
-function evl_CombatText:PlaySounds()
-	local path = "Interface\\AddOns\\evl_CombatText\\sounds\\%s.mp3"
-	local multiFileName = multiSounds[math.min(3, multiKill)]
-	local spreeFileName = spreeSounds[math.min(11, killingStreak)]
-	
-	if multiFileName then
-		PlaySoundFile(string.format(path, multiFileName))
-	end
-	
-	if spreeFileName then
-		local spreeFilePath = string.format(path, spreeFileName)
-
-		if not multiFileName then
-			PlaySoundFile(spreeFilePath)
-		else
-			pendingSound = spreeFilePath
+function addon:UNIT_HEALTH(event, unit)
+	if executeThreshold and unit == "target" and UnitCanAttack("player", unit) then
+		local value, max = UnitHealth(unit), UnitHealthMax(unit)
+		local threshold = max * executeThreshold
+		
+		if (previousHealth == 0 or previousHealth > threshold) and value < threshold then
+			CombatText_AddMessage("Execute!", COMBAT_TEXT_SCROLL_FUNCTION, 1, .1, .1, nil, nil)
 		end
+		
+		previousHealth = value
 	end
+end
+
+local frame = CreateFrame("Frame")
+frame:SetScript("OnEvent", onEvent)
+frame:SetScript("OnUpdate", onUpdate)
+
+frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+frame:RegisterEvent("PLAYER_DEAD")
+frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+
+-- Execute range notification, currently only implemented for rogues
+local playerClass = select(2, UnitClass("player"))
+
+-- Assassination's Murderous Intent
+if playerClass == "ROGUE" and GetPrimaryTalentTree() == 1 then
+	executeThreshold = 0.35
+	executeMessage = "Execute!"
+	
+	frame:RegisterEvent("UNIT_HEALTH")
 end
